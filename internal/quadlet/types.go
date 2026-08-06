@@ -365,3 +365,100 @@ func parseShow(output string) map[string]string {
 	}
 	return result
 }
+
+// QuadletInspect holds runtime stats for a running quadlet container.
+type QuadletInspect struct {
+	Name         string `json:"name"`
+	ContainerID  string `json:"container_id"`
+	Status       string `json:"status"`
+	PID          int    `json:"pid"`
+	StartedAt    string `json:"started_at"`
+	Image        string `json:"image"`
+	ImageID      string `json:"image_id"`
+	CPUPercent   string `json:"cpu_percent"`
+	MemUsage     string `json:"mem_usage"`
+	MemPercent   string `json:"mem_percent"`
+	NetIO        string `json:"net_io"`
+	BlockIO      string `json:"block_io"`
+	DiskUsage    string `json:"disk_usage,omitempty"`
+}
+
+// GatherQuadletInspect collects container runtime stats for a quadlet.
+// It uses podman inspect for metadata and podman stats for resource usage.
+func GatherQuadletInspect(name string, scope Scope) (*QuadletInspect, error) {
+	podmanArgs := []string{}
+	if scope == ScopeUser {
+		podmanArgs = append(podmanArgs, "--user")
+	}
+
+	// Try the container name as-is first, then with systemd- prefix
+	// (Quadlet names containers systemd-<quadletname>)
+	containerNames := []string{name, "systemd-" + name}
+
+	var inspectOut []byte
+	var foundName string
+	for _, cn := range containerNames {
+		args := append(podmanArgs, "inspect", "--format",
+			`{{.Id}}|{{.State.Status}}|{{.State.Pid}}|{{.State.StartedAt}}|{{.Config.Image}}|{{.Name}}`,
+			cn)
+		out, err := exec.Command("podman", args...).Output()
+		if err == nil && len(out) > 0 {
+			inspectOut = out
+			foundName = cn
+			break
+		}
+	}
+
+	if inspectOut == nil {
+		return nil, fmt.Errorf("container for quadlet %q not found (is it running?)", name)
+	}
+
+	inspectStr := strings.TrimSpace(string(inspectOut))
+	parts := strings.SplitN(inspectStr, "|", 6)
+	if len(parts) < 6 {
+		return nil, fmt.Errorf("unexpected podman inspect output for %s", name)
+	}
+
+	inspect := &QuadletInspect{
+		Name:        name,
+		ContainerID: parts[0],
+		Status:      parts[1],
+		Image:       parts[4],
+	}
+	fmt.Sscanf(parts[2], "%d", &inspect.PID)
+	inspect.StartedAt = parts[3]
+	_ = foundName
+
+	// Get resource usage via podman stats
+	statsArgs := append(podmanArgs, "stats", "--no-stream", "--format",
+		"{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}",
+		foundName)
+	statsOut, err := exec.Command("podman", statsArgs...).Output()
+	if err == nil {
+		statsStr := strings.TrimSpace(string(statsOut))
+		statsParts := strings.SplitN(statsStr, "|", 6)
+		if len(statsParts) >= 6 {
+			inspect.CPUPercent = strings.TrimSpace(statsParts[1])
+			inspect.MemUsage = strings.TrimSpace(statsParts[2])
+			inspect.MemPercent = strings.TrimSpace(statsParts[3])
+			inspect.NetIO = strings.TrimSpace(statsParts[4])
+			inspect.BlockIO = strings.TrimSpace(statsParts[5])
+		}
+	}
+
+	// Get disk usage via podman system df
+	dfArgs := append(podmanArgs, "system", "df", "--format",
+		"{{.Type}}|{{.Total}}|{{.Active}}|{{.Size}}|{{.Reclaimable}}")
+	dfOut, err := exec.Command("podman", dfArgs...).Output()
+	if err == nil {
+		for _, line := range strings.Split(string(dfOut), "\n") {
+			fields := strings.Split(line, "|")
+			if len(fields) >= 4 && strings.TrimSpace(fields[0]) == "Images" {
+				inspect.DiskUsage = strings.TrimSpace(fields[3])
+				break
+			}
+		}
+	}
+
+	return inspect, nil
+}

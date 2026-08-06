@@ -20,6 +20,7 @@ They mount on the host after the network is ready.
 Subcommands:
   list      - List all quadlets in a table
   status    - Show detailed status of a specific quadlet
+  inspect   - Show runtime stats (CPU, memory, disk) for a quadlet
   create    - Interactive wizard to create a new container quadlet
   delete    - Delete a quadlet and stop its service
   start     - Start a quadlet's service
@@ -32,6 +33,7 @@ All subcommands support --user to manage user-level quadlets.`,
 
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newStatusCmd())
+	cmd.AddCommand(newInspectCmd())
 	cmd.AddCommand(newCreateCmd())
 	cmd.AddCommand(newDeleteCmd())
 	cmd.AddCommand(newStartCmd())
@@ -117,6 +119,46 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			fmt.Print(FormatQuadletDetail(q))
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "output in JSON format")
+	cmd.Flags().BoolVar(&user, "user", false, "manage user-level quadlets")
+	return cmd
+}
+
+func newInspectCmd() *cobra.Command {
+	var jsonOut bool
+	var user bool
+
+	cmd := &cobra.Command{
+		Use:   "inspect <name>",
+		Short: "Show runtime stats (CPU, memory, disk) for a quadlet",
+		Long: `Show runtime resource usage for a running quadlet container.
+
+Includes container status, PID, CPU percentage, memory usage,
+network I/O, block I/O, and image disk usage via podman inspect
+and podman stats.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			scope := scopeFromFlag(user)
+
+			inspect, err := GatherQuadletInspect(args[0], scope)
+			if err != nil {
+				return err
+			}
+
+			if jsonOut {
+				out, err := json.MarshalIndent(inspect, "", "  ")
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(out))
+				return nil
+			}
+
+			fmt.Print(FormatQuadletInspect(inspect))
 			return nil
 		},
 	}

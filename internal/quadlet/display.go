@@ -175,6 +175,104 @@ func FormatQuadletDetail(q *Quadlet) string {
 	return b.String()
 }
 
+// FormatQuadletInspect renders a detailed runtime view for a running quadlet.
+func FormatQuadletInspect(inspect *QuadletInspect) string {
+	var b strings.Builder
+
+	b.WriteString(quadTitleStyle.Render(fmt.Sprintf(" Quadlet Inspect: %s ", inspect.Name)))
+	b.WriteString("\n\n")
+
+	// Container section
+	b.WriteString(quadHeaderStyle.Render("Container"))
+	b.WriteString("\n")
+	containerRows := [][2]string{
+		{"Name", inspect.Name},
+		{"Container ID", func() string {
+			if len(inspect.ContainerID) > 12 {
+				return inspect.ContainerID[:12]
+			}
+			return inspect.ContainerID
+		}()},
+		{"Status", inspect.Status},
+		{"PID", func() string {
+			if inspect.PID == 0 {
+				return "-"
+			}
+			return fmt.Sprintf("%d", inspect.PID)
+		}()},
+		{"Started", func() string {
+			if inspect.StartedAt == "" {
+				return "-"
+			}
+			return inspect.StartedAt
+		}()},
+		{"Image", inspect.Image},
+	}
+	b.WriteString(renderInspectRows(containerRows))
+
+	// Resources section
+	b.WriteString("\n")
+	b.WriteString(quadHeaderStyle.Render("Resources"))
+	b.WriteString("\n")
+	resRows := [][2]string{
+		{"CPU", func() string {
+			if inspect.CPUPercent == "" {
+				return "-"
+			}
+			return inspect.CPUPercent
+		}()},
+		{"Memory Usage", func() string {
+			if inspect.MemUsage == "" {
+				return "-"
+			}
+			return inspect.MemUsage
+		}()},
+		{"Memory %", func() string {
+			if inspect.MemPercent == "" {
+				return "-"
+			}
+			return inspect.MemPercent
+		}()},
+		{"Net I/O", func() string {
+			if inspect.NetIO == "" {
+				return "-"
+			}
+			return inspect.NetIO
+		}()},
+		{"Block I/O", func() string {
+			if inspect.BlockIO == "" {
+				return "-"
+			}
+			return inspect.BlockIO
+		}()},
+		{"Image Disk", func() string {
+			if inspect.DiskUsage == "" {
+				return "-"
+			}
+			return inspect.DiskUsage
+		}()},
+	}
+	b.WriteString(renderInspectRows(resRows))
+
+	return b.String()
+}
+
+func renderInspectRows(rows [][2]string) string {
+	var b strings.Builder
+	maxLabel := 0
+	for _, r := range rows {
+		if len(r[0]) > maxLabel {
+			maxLabel = len(r[0])
+		}
+	}
+	for _, r := range rows {
+		label := lipgloss.NewStyle().Foreground(lipgloss.Color("70")).Bold(true).Render(padRight(r[0], maxLabel))
+		value := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render(r[1])
+		b.WriteString(fmt.Sprintf("  %s  %s\n", label, value))
+	}
+	return b.String()
+}
+
 func padRight(s string, width int) string {
 	if len(s) >= width {
 		return s
