@@ -1,0 +1,334 @@
+// Package quadlet provides Podman Quadlet management commands for the server CLI.
+// Quadlets are systemd unit files that describe containerized services. This
+// package supports creating, listing, deleting, starting, and stopping quadlets
+// for both system and user scopes.
+package quadlet
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+// Scope determines whether to manage system or user quadlets.
+type Scope string
+
+const (
+	ScopeSystem Scope = "system"
+	ScopeUser   Scope = "user"
+)
+
+// QuadletType is the type of quadlet unit file.
+type QuadletType string
+
+const (
+	TypeContainer QuadletType = "container"
+	TypeVolume    QuadletType = "volume"
+	TypeNetwork   QuadletType = "network"
+	TypeKube      QuadletType = "kube"
+)
+
+// Quadlet describes a quadlet unit file on disk.
+type Quadlet struct {
+	Name       string      `json:"name"`
+	UnitFile   string      `json:"unit_file"`
+	Type       QuadletType `json:"type"`
+	Scope      Scope       `json:"scope"`
+	Image      string      `json:"image,omitempty"`
+	ActiveState string     `json:"active_state,omitempty"`
+	SubState    string      `json:"sub_state,omitempty"`
+	Enabled     bool       `json:"enabled,omitempty"`
+}
+
+// QuadletSpec holds the user-provided configuration for creating a container quadlet.
+type QuadletSpec struct {
+	Name        string
+	Image       string
+	Description string
+	Volumes     []string   // e.g. "data:/data" or "/host/path:/container/path:Z"
+	Ports       []string   // e.g. "8080:80"
+	Environment []string   // e.g. "KEY=value"
+	Restart     string     // no, on-failure, always (default: always)
+	AutoUpdate  bool       // enable auto-update via podman-auto-update
+	User        bool       // run as non-root user (for user quadlets)
+	Network     string     // network mode (host, bridge, none, or custom name)
+}
+
+// QuadletDir returns the directory where quadlet files are stored for the given scope.
+func QuadletDir(scope Scope) (string, error) {
+	switch scope {
+	case ScopeUser:
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("getting home directory: %w", err)
+		}
+		return filepath.Join(home, ".config", "containers", "systemd"), nil
+	case ScopeSystem:
+		return "/etc/containers/systemd", nil
+	default:
+		return "", fmt.Errorf("unknown scope %q", scope)
+	}
+}
+
+// GatherQuadlets lists all quadlet files for the given scope.
+func GatherQuadlets(scope Scope) ([]Quadlet, error) {
+	dir, err := QuadletDir(scope)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading quadlet directory %s: %w", dir, err)
+	}
+
+	var result []Quadlet
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		qType, ok := parseQuadletType(name)
+		if !ok {
+			continue
+		}
+
+		baseName := strings.TrimSuffix(strings.TrimSuffix(name, ".container"), ".volume")
+		baseName = strings.TrimSuffix(baseName, ".network")
+		baseName = strings.TrimSuffix(baseName, ".kube")
+
+		q := Quadlet{
+			Name:     baseName,
+			UnitFile: filepath.Join(dir, name),
+			Type:     qType,
+			Scope:    scope,
+		}
+
+		// Read the image from container quadlets
+		if qType == TypeContainer {
+			if content, err := os.ReadFile(q.UnitFile); err == nil {
+				for _, line := range strings.Split(string(content), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "Image=") {
+						q.Image = strings.TrimPrefix(line, "Image=")
+					}
+				}
+			}
+		}
+
+		// Get systemd status
+		systemdUnit := baseName
+		switch qType {
+		case TypeContainer:
+			systemdUnit += "-service"
+		case TypeVolume:
+			systemdUnit += "-volume"
+		case TypeNetwork:
+			systemdUnit += "-network"
+		case TypeKube:
+			systemdUnit += "-kube"
+		}
+
+		if status, err := exec.Command("systemctl", scopeFlag(scope), "show",
+			systemdUnit, "--no-pager").Output(); err == nil {
+			props := parseShow(string(status))
+			if len(props) > 0 {
+				q.ActiveState = props["ActiveState"]
+				q.SubState = props["SubState"]
+				q.Enabled = props["UnitFileState"] == "enabled"
+			}
+		}
+
+		result = append(result, q)
+	}
+
+	// Sort by name
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+// FindQuadlet returns the quadlet with the given name, or nil.
+func FindQuadlet(quadlets []Quadlet, name string) *Quadlet {
+	for i := range quadlets {
+		if quadlets[i].Name == name {
+			return &quadlets[i]
+		}
+	}
+	return nil
+}
+
+// CreateQuadlet writes a container quadlet file from the given spec.
+func CreateQuadlet(spec *QuadletSpec, scope Scope) error {
+	dir, err := QuadletDir(scope)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating quadlet directory: %w", err)
+	}
+
+	if spec.Restart == "" {
+		spec.Restart = "always"
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("# %s\n", spec.Description))
+	b.WriteString(fmt.Sprintf("# Generated by nest-server\n"))
+	b.WriteString(fmt.Sprintf("[Unit]\n"))
+	b.WriteString(fmt.Sprintf("Description=%s\n", spec.Description))
+	b.WriteString(fmt.Sprintf("After=network-online.target\n"))
+	b.WriteString(fmt.Sprintf("Wants=network-online.target\n"))
+	b.WriteString(fmt.Sprintf("\n[Container]\n"))
+	b.WriteString(fmt.Sprintf("Image=%s\n", spec.Image))
+
+	if len(spec.Volumes) > 0 {
+		for _, v := range spec.Volumes {
+			b.WriteString(fmt.Sprintf("Volume=%s\n", v))
+		}
+	}
+
+	if len(spec.Ports) > 0 {
+		for _, p := range spec.Ports {
+			b.WriteString(fmt.Sprintf("PublishPort=%s\n", p))
+		}
+	}
+
+	if len(spec.Environment) > 0 {
+		for _, e := range spec.Environment {
+			b.WriteString(fmt.Sprintf("Environment=%s\n", e))
+		}
+	}
+
+	if spec.Network != "" {
+		b.WriteString(fmt.Sprintf("Network=%s\n", spec.Network))
+	} else {
+		// Quadlets always mount on host after network is ready
+		b.WriteString("Network=host\n")
+	}
+
+	if spec.AutoUpdate {
+		b.WriteString("AutoUpdate=registry\n")
+	}
+
+	b.WriteString("\n[Service]\n")
+	b.WriteString(fmt.Sprintf("Restart=%s\n", spec.Restart))
+
+	b.WriteString("\n[Install]\n")
+	b.WriteString("WantedBy=default.target\n")
+
+	unitPath := filepath.Join(dir, spec.Name+".container")
+	if err := os.WriteFile(unitPath, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("writing quadlet file %s: %w", unitPath, err)
+	}
+
+	// Reload systemd and start the quadlet
+	if err := exec.Command("systemctl", scopeFlag(scope), "daemon-reload").Run(); err != nil {
+		return fmt.Errorf("reloading systemd: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteQuadlet removes a quadlet file and stops/disables its service.
+func DeleteQuadlet(name string, scope Scope) error {
+	dir, err := QuadletDir(scope)
+	if err != nil {
+		return err
+	}
+
+	unitPath := filepath.Join(dir, name+".container")
+	if _, err := os.Stat(unitPath); os.IsNotExist(err) {
+		return fmt.Errorf("quadlet %q not found", name)
+	}
+
+	// Stop and disable the service
+	systemdUnit := name + "-service"
+	exec.Command("systemctl", scopeFlag(scope), "stop", systemdUnit).Run()
+	exec.Command("systemctl", scopeFlag(scope), "disable", systemdUnit).Run()
+
+	// Remove the file
+	if err := os.Remove(unitPath); err != nil {
+		return fmt.Errorf("removing quadlet file %s: %w", unitPath, err)
+	}
+
+	// Reload systemd
+	if err := exec.Command("systemctl", scopeFlag(scope), "daemon-reload").Run(); err != nil {
+		return fmt.Errorf("reloading systemd: %w", err)
+	}
+
+	return nil
+}
+
+// StartQuadlet starts the systemd service for a quadlet.
+func StartQuadlet(name string, scope Scope) error {
+	systemdUnit := name + "-service"
+	return runSystemctl(systemdUnit, "start", scope)
+}
+
+// StopQuadlet stops the systemd service for a quadlet.
+func StopQuadlet(name string, scope Scope) error {
+	systemdUnit := name + "-service"
+	return runSystemctl(systemdUnit, "stop", scope)
+}
+
+// RestartQuadlet restarts the systemd service for a quadlet.
+func RestartQuadlet(name string, scope Scope) error {
+	systemdUnit := name + "-service"
+	return runSystemctl(systemdUnit, "restart", scope)
+}
+
+// runSystemctl runs a systemctl command with the appropriate scope.
+func runSystemctl(unit, action string, scope Scope) error {
+	args := []string{scopeFlag(scope), action, unit}
+	out, err := exec.Command("systemctl", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("systemctl %s %s: %w\n%s", action, unit, err, string(out))
+	}
+	return nil
+}
+
+func scopeFlag(scope Scope) string {
+	if scope == ScopeUser {
+		return "--user"
+	}
+	return "--system"
+}
+
+// parseQuadletType determines the quadlet type from the filename extension.
+func parseQuadletType(filename string) (QuadletType, bool) {
+	switch {
+	case strings.HasSuffix(filename, ".container"):
+		return TypeContainer, true
+	case strings.HasSuffix(filename, ".volume"):
+		return TypeVolume, true
+	case strings.HasSuffix(filename, ".network"):
+		return TypeNetwork, true
+	case strings.HasSuffix(filename, ".kube"):
+		return TypeKube, true
+	default:
+		return "", false
+	}
+}
+
+// parseShow parses the key=value output of systemctl show.
+func parseShow(output string) map[string]string {
+	result := make(map[string]string)
+	for _, line := range strings.Split(output, "\n") {
+		idx := strings.Index(line, "=")
+		if idx <= 0 {
+			continue
+		}
+		result[line[:idx]] = line[idx+1:]
+	}
+	return result
+}

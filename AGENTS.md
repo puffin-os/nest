@@ -39,6 +39,7 @@ internal/
   netmgmt/            # network management: list, status, add, remove
   diskmgmt/           # disk management: list, status, mounts, mount, unmount, format, expand
   svcmgt/             # service management: list, status, start/stop/restart, enable/disable, logs
+  quadlet/            # quadlet (apps) management: create/list/delete/start/stop
   sysinfo/            # system info gathering and formatted output
 .github/workflows/    # CI (build/vet/test) and release-please
 ```
@@ -80,6 +81,17 @@ internal/
   - `service mask <service>` — mask so it cannot be started
   - `service unmask <service>` — unmask a previously masked service
   - `service logs <service>` — view journal logs (`-n` for lines, `-f` to follow)
+
+- `apps` — manage Podman Quadlets (containerized services)
+  - `apps list` — table of all quadlets (`--json`, `--user` for user scope)
+  - `apps status <name>` — detailed view with unit file, image, systemd state (`--json`)
+  - `apps create` — interactive bubbletea wizard (image, volumes, ports, env, restart, auto-update)
+  - `apps delete <name>` — delete quadlet and stop/disable its service
+  - `apps start <name>` — start a quadlet's service
+  - `apps stop <name>` — stop a quadlet's service
+  - `apps restart <name>` — restart a quadlet's service
+  - All subcommands support `--user` for user-level quadlets
+  - Quadlets always mount on host after network is ready (`After=network-online.target`)
 
 ## Build and development
 
