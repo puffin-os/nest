@@ -9,8 +9,8 @@ Shared Go CLI for Puffin OS derivatives. One codebase, three binaries:
 ## Build
 
 ```sh
-make all        # builds all three binaries into bin/
-make nest-server # build a single binary
+task build              # builds all three binaries into bin/
+task build:server       # build a single binary
 ```
 
 ## Usage

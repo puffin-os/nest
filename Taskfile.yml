@@ -1,0 +1,54 @@
+version: '3'
+
+vars:
+  BINARIES:
+    - nest-server
+    - nest-desktop
+    - nest-workstation
+
+tasks:
+  default:
+    desc: Build all nest binaries
+    cmds:
+      - task: build
+
+  build:
+    desc: Build all three nest binaries
+    cmds:
+      - for: { var: BINARIES }
+        cmd: go build -o bin/{{.ITEM}} ./cmd/{{.ITEM}}
+
+  build:server:
+    desc: Build the server binary
+    cmds:
+      - go build -o bin/nest-server ./cmd/nest-server
+
+  build:desktop:
+    desc: Build the desktop binary
+    cmds:
+      - go build -o bin/nest-desktop ./cmd/nest-desktop
+
+  build:workstation:
+    desc: Build the workstation binary
+    cmds:
+      - go build -o bin/nest-workstation ./cmd/nest-workstation
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  tidy:
+    desc: Tidy go modules
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Remove built binaries
+    cmds:
+      - rm -rf bin/
