@@ -126,13 +126,13 @@ func GatherQuadlets(scope Scope) ([]Quadlet, error) {
 		systemdUnit := baseName
 		switch qType {
 		case TypeContainer:
-			systemdUnit += "-service"
+			systemdUnit += ".service"
 		case TypeVolume:
-			systemdUnit += "-volume"
+			systemdUnit += ".volume"
 		case TypeNetwork:
-			systemdUnit += "-network"
+			systemdUnit += ".network"
 		case TypeKube:
-			systemdUnit += "-kube"
+			systemdUnit += ".kube"
 		}
 
 		if status, err := exec.Command("systemctl", scopeFlag(scope), "show",
@@ -252,7 +252,7 @@ func DeleteQuadlet(name string, scope Scope) error {
 	}
 
 	// Stop and disable the service
-	systemdUnit := name + "-service"
+	systemdUnit := name + ".service"
 	exec.Command("systemctl", scopeFlag(scope), "stop", systemdUnit).Run()
 	exec.Command("systemctl", scopeFlag(scope), "disable", systemdUnit).Run()
 
@@ -271,19 +271,19 @@ func DeleteQuadlet(name string, scope Scope) error {
 
 // StartQuadlet starts the systemd service for a quadlet.
 func StartQuadlet(name string, scope Scope) error {
-	systemdUnit := name + "-service"
+	systemdUnit := name + ".service"
 	return runSystemctl(systemdUnit, "start", scope)
 }
 
 // StopQuadlet stops the systemd service for a quadlet.
 func StopQuadlet(name string, scope Scope) error {
-	systemdUnit := name + "-service"
+	systemdUnit := name + ".service"
 	return runSystemctl(systemdUnit, "stop", scope)
 }
 
 // RestartQuadlet restarts the systemd service for a quadlet.
 func RestartQuadlet(name string, scope Scope) error {
-	systemdUnit := name + "-service"
+	systemdUnit := name + ".service"
 	return runSystemctl(systemdUnit, "restart", scope)
 }
 
