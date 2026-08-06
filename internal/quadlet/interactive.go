@@ -26,9 +26,33 @@ var (
 	formErrorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("203")).
 			Bold(true)
+
+	formSelectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("36")).
+				Bold(true)
+
+	formOptionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241"))
 )
 
-// field index constants
+// fieldKind distinguishes text input fields from selection fields.
+type fieldKind int
+
+const (
+	kindText fieldKind = iota
+	kindSelect
+)
+
+// fieldDef describes a single field in the create wizard.
+type fieldDef struct {
+	label    string
+	kind     fieldKind
+	placeholder string
+	options  []string // for kindSelect
+	defaultIdx int    // for kindSelect
+}
+
+// fieldIndex constants
 const (
 	idxName = iota
 	idxImage
@@ -36,18 +60,32 @@ const (
 	idxVolumes
 	idxPorts
 	idxEnv
+	idxNetwork
 	idxRestart
 	idxAutoUpdate
 	numFields
 )
 
+var fieldDefs = []fieldDef{
+	{label: "Name", kind: kindText, placeholder: "myapp"},
+	{label: "Image", kind: kindText, placeholder: "docker.io/library/nginx:latest"},
+	{label: "Description", kind: kindText, placeholder: "My containerized app"},
+	{label: "Volumes (optional, comma-separated)", kind: kindText, placeholder: "data:/data:Z, /host:/container:Z"},
+	{label: "Ports (optional, comma-separated)", kind: kindText, placeholder: "8080:80, 8443:443"},
+	{label: "Environment (optional, comma-separated)", kind: kindText, placeholder: "DEBUG=true, LOG=info"},
+	{label: "Network", kind: kindSelect, options: []string{"host", "bridge", "none", "slirp4netns"}, defaultIdx: 0},
+	{label: "Restart Policy", kind: kindSelect, options: []string{"always", "on-failure", "no", "on-abnormal", "on-watchdog"}, defaultIdx: 0},
+	{label: "Auto-update from registry?", kind: kindSelect, options: []string{"no", "yes"}, defaultIdx: 0},
+}
+
 // createModel is the bubbletea model for the create wizard.
 type createModel struct {
-	step   int
-	inputs []textinput.Model
-	done   bool
-	result *QuadletSpec
-	err    string
+	step        int
+	textInputs  []textinput.Model
+	selectIdxs  []int
+	done        bool
+	result      *QuadletSpec
+	err         string
 }
 
 // RunCreateForm launches an interactive bubbletea form for creating a quadlet.
@@ -66,30 +104,32 @@ func RunCreateForm() (*QuadletSpec, error) {
 
 func newCreateModel() createModel {
 	m := createModel{
-		result: &QuadletSpec{Restart: "always"},
+		result:     &QuadletSpec{Restart: "always"},
+		textInputs: make([]textinput.Model, numFields),
+		selectIdxs: make([]int, numFields),
 	}
 
-	m.inputs = make([]textinput.Model, numFields)
+	for i, fd := range fieldDefs {
+		if fd.kind == kindText {
+			ti := textinput.New()
+			ti.Placeholder = fd.placeholder
+			ti.CharLimit = 500
+			ti.Width = 60
+			m.textInputs[i] = ti
+		} else {
+			m.selectIdxs[i] = fd.defaultIdx
+		}
+	}
 
-	m.inputs[idxName] = newField("myapp", "Quadlet name (used as systemd unit name)")
-	m.inputs[idxImage] = newField("docker.io/library/nginx:latest", "Container image")
-	m.inputs[idxDesc] = newField("My containerized app", "Description (for systemd unit)")
-	m.inputs[idxVolumes] = newField("data:/data:Z", "Volumes (comma-separated, optional, e.g. data:/data, /host:/container:Z)")
-	m.inputs[idxPorts] = newField("8080:80", "Ports (comma-separated, optional, e.g. 8080:80, 8443:443)")
-	m.inputs[idxEnv] = newField("KEY=value", "Environment (comma-separated, optional, e.g. DEBUG=true,LOG=info)")
-	m.inputs[idxRestart] = newField("always", "Restart policy (no, on-failure, always)")
-	m.inputs[idxAutoUpdate] = newField("no", "Auto-update from registry? (yes/no)")
+	// Focus first text field
+	for i, fd := range fieldDefs {
+		if fd.kind == kindText {
+			m.textInputs[i].Focus()
+			break
+		}
+	}
 
-	m.inputs[0].Focus()
 	return m
-}
-
-func newField(placeholder, _ string) textinput.Model {
-	ti := textinput.New()
-	ti.Placeholder = placeholder
-	ti.CharLimit = 500
-	ti.Width = 60
-	return ti
 }
 
 func (m createModel) Init() tea.Cmd {
@@ -102,8 +142,16 @@ func (m createModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc", "ctrl+c":
 			return m, tea.Quit
-		case "tab", "shift+tab", "enter":
-			if msg.String() == "enter" && m.step == numFields-1 {
+		case "tab", "shift+tab":
+			if msg.String() == "shift+tab" {
+				m.prevField()
+			} else {
+				m.nextField()
+			}
+			m.err = ""
+			return m, nil
+		case "enter":
+			if m.step == numFields-1 {
 				if err := m.validate(); err != "" {
 					m.err = err
 					return m, nil
@@ -112,42 +160,65 @@ func (m createModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.done = true
 				return m, tea.Quit
 			}
-			if msg.String() == "shift+tab" {
-				m.prevInput()
-			} else {
-				m.nextInput()
-			}
+			m.nextField()
 			m.err = ""
 			return m, nil
+		case "up", "k":
+			if fieldDefs[m.step].kind == kindSelect {
+				if m.selectIdxs[m.step] > 0 {
+					m.selectIdxs[m.step]--
+				}
+				return m, nil
+			}
+		case "down", "j":
+			if fieldDefs[m.step].kind == kindSelect {
+				if m.selectIdxs[m.step] < len(fieldDefs[m.step].options)-1 {
+					m.selectIdxs[m.step]++
+				}
+				return m, nil
+			}
 		}
 	}
 
-	var cmd tea.Cmd
-	m.inputs[m.step], cmd = m.inputs[m.step].Update(msg)
-	return m, cmd
+	// Only forward keystrokes to text inputs
+	if fieldDefs[m.step].kind == kindText {
+		var cmd tea.Cmd
+		m.textInputs[m.step], cmd = m.textInputs[m.step].Update(msg)
+		return m, cmd
+	}
+
+	return m, nil
 }
 
-func (m *createModel) nextInput() {
-	m.inputs[m.step].Blur()
+func (m *createModel) nextField() {
+	if fieldDefs[m.step].kind == kindText {
+		m.textInputs[m.step].Blur()
+	}
 	if m.step < numFields-1 {
 		m.step++
-		m.inputs[m.step].Focus()
+		if fieldDefs[m.step].kind == kindText {
+			m.textInputs[m.step].Focus()
+		}
 	}
 }
 
-func (m *createModel) prevInput() {
-	m.inputs[m.step].Blur()
+func (m *createModel) prevField() {
+	if fieldDefs[m.step].kind == kindText {
+		m.textInputs[m.step].Blur()
+	}
 	if m.step > 0 {
 		m.step--
-		m.inputs[m.step].Focus()
+		if fieldDefs[m.step].kind == kindText {
+			m.textInputs[m.step].Focus()
+		}
 	}
 }
 
 func (m createModel) validate() string {
-	if m.inputs[idxName].Value() == "" {
+	if m.textInputs[idxName].Value() == "" {
 		return "Name is required"
 	}
-	if m.inputs[idxImage].Value() == "" {
+	if m.textInputs[idxImage].Value() == "" {
 		return "Image is required"
 	}
 	return ""
@@ -155,26 +226,20 @@ func (m createModel) validate() string {
 
 func (m *createModel) collectResult() {
 	r := m.result
-	r.Name = m.inputs[idxName].Value()
-	r.Image = m.inputs[idxImage].Value()
-	r.Description = m.inputs[idxDesc].Value()
+	r.Name = m.textInputs[idxName].Value()
+	r.Image = m.textInputs[idxImage].Value()
+	r.Description = m.textInputs[idxDesc].Value()
 	if r.Description == "" {
 		r.Description = r.Name
 	}
 
-	r.Volumes = parseCSV(m.inputs[idxVolumes].Value())
-	r.Ports = parseCSV(m.inputs[idxPorts].Value())
-	r.Environment = parseCSV(m.inputs[idxEnv].Value())
+	r.Volumes = parseCSV(m.textInputs[idxVolumes].Value())
+	r.Ports = parseCSV(m.textInputs[idxPorts].Value())
+	r.Environment = parseCSV(m.textInputs[idxEnv].Value())
 
-	restart := m.inputs[idxRestart].Value()
-	if restart != "" {
-		r.Restart = restart
-	}
-	if r.Restart == "" {
-		r.Restart = "always"
-	}
-
-	r.AutoUpdate = strings.ToLower(m.inputs[idxAutoUpdate].Value()) == "yes"
+	r.Network = fieldDefs[idxNetwork].options[m.selectIdxs[idxNetwork]]
+	r.Restart = fieldDefs[idxRestart].options[m.selectIdxs[idxRestart]]
+	r.AutoUpdate = fieldDefs[idxAutoUpdate].options[m.selectIdxs[idxAutoUpdate]] == "yes"
 }
 
 // parseCSV splits a comma-separated string, trimming whitespace.
@@ -198,36 +263,46 @@ func (m createModel) View() string {
 		return ""
 	}
 
-	labels := []string{
-		"Name",
-		"Image",
-		"Description",
-		"Volumes (optional, comma-separated)",
-		"Ports (optional, comma-separated)",
-		"Environment (optional, comma-separated)",
-		"Restart Policy",
-		"Auto-update? (yes/no)",
-	}
-
 	var b strings.Builder
 	b.WriteString(formTitleStyle.Render(" Create Quadlet "))
 	b.WriteString("\n\n")
 
-	for i, input := range m.inputs {
-		label := formLabelStyle.Render(labels[i])
-		if i == m.step {
-			b.WriteString(fmt.Sprintf("  ▸ %s\n", label))
-		} else {
-			b.WriteString(fmt.Sprintf("    %s\n", label))
+	for i, fd := range fieldDefs {
+		active := i == m.step
+		cursor := "  "
+		if active {
+			cursor = "▸ "
 		}
-		b.WriteString(fmt.Sprintf("    %s\n", input.View()))
+		label := formLabelStyle.Render(fd.label)
+		b.WriteString(fmt.Sprintf("%s%s\n", cursor, label))
+
+		if fd.kind == kindText {
+			b.WriteString(fmt.Sprintf("    %s\n", m.textInputs[i].View()))
+		} else {
+			// Render selection options
+			selIdx := m.selectIdxs[i]
+			for j, opt := range fd.options {
+				marker := "○"
+				style := formOptionStyle
+				if j == selIdx {
+					marker = "●"
+					style = formSelectedStyle
+				}
+				b.WriteString(fmt.Sprintf("    %s %s\n", marker, style.Render(opt)))
+			}
+		}
+
 		if i < numFields-1 {
 			b.WriteString("\n")
 		}
 	}
 
 	b.WriteString("\n")
-	b.WriteString(formHintStyle.Render("  Tab to next field · Shift+Tab for previous · Enter to submit · Esc to cancel"))
+	if fieldDefs[m.step].kind == kindSelect {
+		b.WriteString(formHintStyle.Render("  Tab to next field · ↑/↓ to select · Enter to submit · Esc to cancel"))
+	} else {
+		b.WriteString(formHintStyle.Render("  Tab to next field · Shift+Tab for previous · Enter to submit · Esc to cancel"))
+	}
 	b.WriteString("\n")
 
 	if m.err != "" {

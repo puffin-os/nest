@@ -142,8 +142,9 @@ The wizard will prompt for:
   - Volumes (optional, comma-separated)
   - Ports (optional, comma-separated)
   - Environment variables (optional, comma-separated)
-  - Restart policy (default: always)
-  - Auto-update from registry (default: no)
+  - Network (select: host, bridge, none, slirp4netns)
+  - Restart policy (select: always, on-failure, no, on-abnormal, on-watchdog)
+  - Auto-update from registry (select: no, yes)
 
 The quadlet will mount on the host after the network is ready.
 Use --dry-run to preview the generated unit file without writing it.
@@ -168,6 +169,7 @@ Use --user to create a user-level quadlet.`,
 				fmt.Printf("  Volumes: %v\n", spec.Volumes)
 				fmt.Printf("  Ports:   %v\n", spec.Ports)
 				fmt.Printf("  Env:     %v\n", spec.Environment)
+				fmt.Printf("  Network: %s\n", spec.Network)
 				fmt.Printf("  Restart: %s\n", spec.Restart)
 				fmt.Printf("  Update:  %v\n", spec.AutoUpdate)
 				fmt.Printf("  Scope:   %s\n", scope)
