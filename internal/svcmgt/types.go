@@ -10,15 +10,36 @@ import (
 	"strings"
 )
 
+// Scope determines whether to manage system or user systemd services.
+type Scope string
+
+const (
+	ScopeSystem Scope = "system"
+	ScopeUser   Scope = "user"
+)
+
+// scopeFlag returns the systemctl flag for the given scope.
+func scopeFlag(scope Scope) string {
+	if scope == ScopeUser {
+		return "--user"
+	}
+	return "--system"
+}
+
+// scopeFlagArgs returns the scope flag as a string slice for exec.Command.
+func scopeFlagArgs(scope Scope) []string {
+	return []string{scopeFlag(scope)}
+}
+
 // ServiceState represents the active state of a systemd unit.
 type ServiceState string
 
 const (
-	StateActive    ServiceState = "active"
-	StateInactive  ServiceState = "inactive"
-	StateFailed    ServiceState = "failed"
+	StateActive     ServiceState = "active"
+	StateInactive   ServiceState = "inactive"
+	StateFailed     ServiceState = "failed"
 	StateActivating ServiceState = "activating"
-	StateUnknown   ServiceState = "unknown"
+	StateUnknown    ServiceState = "unknown"
 )
 
 // Service describes a systemd service unit.
@@ -27,7 +48,7 @@ type Service struct {
 	LoadState   string       `json:"load_state"`
 	ActiveState ServiceState `json:"active_state"`
 	SubState    string       `json:"sub_state"`
-	Description string       `json:"description"`
+	Description  string       `json:"description"`
 	Enabled     bool         `json:"enabled"`
 	Type        string       `json:"type"`
 	PID         int          `json:"pid"`
@@ -47,10 +68,11 @@ type ServiceDetail struct {
 }
 
 // GatherServices runs systemctl list-units and returns all service units.
-func GatherServices() ([]Service, error) {
-	out, err := exec.Command("systemctl", "list-units", "--type=service",
+func GatherServices(scope Scope) ([]Service, error) {
+	args := append(scopeFlagArgs(scope), "list-units", "--type=service",
 		"--all", "--no-legend", "--no-pager",
-		"--output=json").Output()
+		"--output=json")
+	out, err := exec.Command("systemctl", args...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("running systemctl list-units: %w", err)
 	}
@@ -68,7 +90,7 @@ func GatherServices() ([]Service, error) {
 	}
 
 	// Gather enabled state for all services in one call
-	enabledMap := gatherEnabledMap()
+	enabledMap := gatherEnabledMap(scope)
 
 	var result []Service
 	for _, u := range units {
@@ -87,9 +109,10 @@ func GatherServices() ([]Service, error) {
 }
 
 // gatherEnabledMap returns a set of enabled service unit names.
-func gatherEnabledMap() map[string]bool {
-	out, err := exec.Command("systemctl", "list-unit-files", "--type=service",
-		"--no-legend", "--no-pager").Output()
+func gatherEnabledMap(scope Scope) map[string]bool {
+	args := append(scopeFlagArgs(scope), "list-unit-files", "--type=service",
+		"--no-legend", "--no-pager")
+	out, err := exec.Command("systemctl", args...).Output()
 	if err != nil {
 		return nil
 	}
@@ -115,8 +138,9 @@ func FindService(services []Service, unit string) *Service {
 }
 
 // GatherServiceDetail runs systemctl show on a single service.
-func GatherServiceDetail(unit string) (*ServiceDetail, error) {
-	out, err := exec.Command("systemctl", "show", unit, "--no-pager").Output()
+func GatherServiceDetail(unit string, scope Scope) (*ServiceDetail, error) {
+	args := append(scopeFlagArgs(scope), "show", unit, "--no-pager")
+	out, err := exec.Command("systemctl", args...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("running systemctl show %s: %w", unit, err)
 	}
@@ -195,8 +219,9 @@ func parseSystemctlShow(output string) map[string]string {
 }
 
 // ServiceAction performs a systemctl action on a service.
-func ServiceAction(unit, action string) error {
-	cmd := exec.Command("systemctl", action, unit)
+func ServiceAction(unit, action string, scope Scope) error {
+	args := append(scopeFlagArgs(scope), action, unit)
+	cmd := exec.Command("systemctl", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("systemctl %s %s: %w\n%s", action, unit, err, string(out))
 	}
@@ -204,52 +229,55 @@ func ServiceAction(unit, action string) error {
 }
 
 // StartService starts a systemd service.
-func StartService(unit string) error {
-	return ServiceAction(unit, "start")
+func StartService(unit string, scope Scope) error {
+	return ServiceAction(unit, "start", scope)
 }
 
 // StopService stops a systemd service.
-func StopService(unit string) error {
-	return ServiceAction(unit, "stop")
+func StopService(unit string, scope Scope) error {
+	return ServiceAction(unit, "stop", scope)
 }
 
 // RestartService restarts a systemd service.
-func RestartService(unit string) error {
-	return ServiceAction(unit, "restart")
+func RestartService(unit string, scope Scope) error {
+	return ServiceAction(unit, "restart", scope)
 }
 
 // EnableService enables a systemd service to start at boot.
-func EnableService(unit string) error {
-	return ServiceAction(unit, "enable")
+func EnableService(unit string, scope Scope) error {
+	return ServiceAction(unit, "enable", scope)
 }
 
 // DisableService disables a systemd service from starting at boot.
-func DisableService(unit string) error {
-	return ServiceAction(unit, "disable")
+func DisableService(unit string, scope Scope) error {
+	return ServiceAction(unit, "disable", scope)
 }
 
 // ReloadService reloads a systemd service's configuration.
-func ReloadService(unit string) error {
-	return ServiceAction(unit, "reload")
+func ReloadService(unit string, scope Scope) error {
+	return ServiceAction(unit, "reload", scope)
 }
 
 // MaskService masks a systemd service so it cannot be started.
-func MaskService(unit string) error {
-	return ServiceAction(unit, "mask")
+func MaskService(unit string, scope Scope) error {
+	return ServiceAction(unit, "mask", scope)
 }
 
 // UnmaskService unmasks a previously masked service.
-func UnmaskService(unit string) error {
-	return ServiceAction(unit, "unmask")
+func UnmaskService(unit string, scope Scope) error {
+	return ServiceAction(unit, "unmask", scope)
 }
 
 // GatherLogs runs journalctl for the given service unit.
-func GatherLogs(unit string, lines int, follow bool) (string, error) {
+func GatherLogs(unit string, lines int, follow bool, scope Scope) (string, error) {
 	args := []string{"-u", unit, "--no-pager"}
+	if scope == ScopeUser {
+		args = append([]string{"--user"}, args...)
+	}
 	if lines > 0 {
-		args = append(args, fmt.Sprintf("-n %d", lines))
+		args = append(args, "-n", fmt.Sprintf("%d", lines))
 	} else {
-		args = append(args, "-n 50")
+		args = append(args, "-n", "50")
 	}
 	if follow {
 		args = append(args, "-f")

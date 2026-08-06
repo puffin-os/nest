@@ -10,9 +10,9 @@ import (
 // NewServiceCmd creates the service command tree for the server CLI.
 func NewServiceCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "service",
+		Use:     "service",
 		Aliases: []string{"svc"},
-		Short: "Manage systemd services",
+		Short:   "Manage systemd services",
 		Long: `Manage systemd services on this Puffin server.
 
 Subcommands:
@@ -26,7 +26,9 @@ Subcommands:
   disable   - Disable a service from starting at boot
   mask      - Mask a service so it cannot be started
   unmask    - Unmask a previously masked service
-  logs      - View recent journal logs for a service`,
+  logs      - View recent journal logs for a service
+
+All subcommands support --user to manage user-level systemd services.`,
 	}
 
 	cmd.AddCommand(newSvcListCmd())
@@ -47,13 +49,18 @@ Subcommands:
 func newSvcListCmd() *cobra.Command {
 	var jsonOut bool
 	var state string
+	var user bool
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all systemd services",
 		Long:  "Print a table of all systemd service units with their load state, active state, sub state, and enabled status.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			services, err := GatherServices()
+			scope := ScopeSystem
+			if user {
+				scope = ScopeUser
+			}
+			services, err := GatherServices(scope)
 			if err != nil {
 				return fmt.Errorf("gathering services: %w", err)
 			}
@@ -84,11 +91,13 @@ func newSvcListCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "output in JSON format")
 	cmd.Flags().StringVarP(&state, "state", "s", "", "filter by active state (active, inactive, failed)")
+	cmd.Flags().BoolVar(&user, "user", false, "manage user-level services")
 	return cmd
 }
 
 func newSvcStatusCmd() *cobra.Command {
 	var jsonOut bool
+	var user bool
 
 	cmd := &cobra.Command{
 		Use:   "status <service>",
@@ -96,8 +105,11 @@ func newSvcStatusCmd() *cobra.Command {
 		Long:  "Show detailed status of a specific systemd service, including PID, memory, CPU, environment, and timestamps.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			unit := args[0]
-			detail, err := GatherServiceDetail(unit)
+			scope := ScopeSystem
+			if user {
+				scope = ScopeUser
+			}
+			detail, err := GatherServiceDetail(args[0], scope)
 			if err != nil {
 				return err
 			}
@@ -117,6 +129,7 @@ func newSvcStatusCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "output in JSON format")
+	cmd.Flags().BoolVar(&user, "user", false, "manage user-level services")
 	return cmd
 }
 
@@ -152,25 +165,35 @@ func newSvcUnmaskCmd() *cobra.Command {
 	return newSimpleActionCmd("unmask", "Unmask a previously masked service", UnmaskService)
 }
 
-func newSimpleActionCmd(use, short string, fn func(string) error) *cobra.Command {
-	return &cobra.Command{
+func newSimpleActionCmd(use, short string, fn func(string, Scope) error) *cobra.Command {
+	var user bool
+
+	cmd := &cobra.Command{
 		Use:   use + " <service>",
 		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			scope := ScopeSystem
+			if user {
+				scope = ScopeUser
+			}
 			unit := args[0]
-			if err := fn(unit); err != nil {
+			if err := fn(unit, scope); err != nil {
 				return err
 			}
 			fmt.Printf("%s: %s\n", use, unit)
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&user, "user", false, "manage user-level services")
+	return cmd
 }
 
 func newSvcLogsCmd() *cobra.Command {
 	var lines int
 	var follow bool
+	var user bool
 
 	cmd := &cobra.Command{
 		Use:   "logs <service>",
@@ -181,8 +204,11 @@ Use --lines to control how many lines to show (default 50).
 Use --follow to follow logs in real time (Ctrl+C to stop).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			unit := args[0]
-			logs, err := GatherLogs(unit, lines, follow)
+			scope := ScopeSystem
+			if user {
+				scope = ScopeUser
+			}
+			logs, err := GatherLogs(args[0], lines, follow, scope)
 			if err != nil {
 				return err
 			}
@@ -193,5 +219,6 @@ Use --follow to follow logs in real time (Ctrl+C to stop).`,
 
 	cmd.Flags().IntVarP(&lines, "lines", "n", 50, "number of log lines to show")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "follow logs in real time")
+	cmd.Flags().BoolVar(&user, "user", false, "manage user-level services")
 	return cmd
 }
