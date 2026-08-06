@@ -1,5 +1,8 @@
 # bin/
 bin/
+nest-server
+nest-desktop
+nest-workstation
 
 # Go
 vendor/

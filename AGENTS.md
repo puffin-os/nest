@@ -37,6 +37,7 @@ internal/
     desktop/          # desktop-only subcommands (placeholder)
     workstation/      # workstation-only subcommands (placeholder)
   netmgmt/            # network management: list, status, add, remove
+  diskmgmt/           # disk management: list, status, mounts, mount, unmount, format, expand
   sysinfo/            # system info gathering and formatted output
 .github/workflows/    # CI (build/vet/test) and release-please
 ```
@@ -56,6 +57,15 @@ internal/
   - `network status <iface>` — detailed view with addresses, stats, bond/VLAN info
   - `network add` — interactive bubbletea form for VLAN/bond/dummy (`--dry-run`)
   - `network remove` — interactive selection list (`--dry-run`)
+
+- `disk` — manage block devices, partitions, and filesystems
+  - `disk list` — table of all block devices (`--json` supported)
+  - `disk status <device>` — detailed view with partitions, filesystem, mount info
+  - `disk mounts` — table of mounted filesystems with size/used/avail/use% (`--json`)
+  - `disk mount <device> <mountpoint>` — mount a device (`-o` for mount options)
+  - `disk unmount <device|mountpoint>` — unmount (`--lazy` for lazy unmount)
+  - `disk format <device>` — format with filesystem (`-t ext4|xfs|btrfs|fat32|swap`, `-l` for label)
+  - `disk expand <device>` — grow partition and resize filesystem to fill available space
 
 ## Build and development
 
