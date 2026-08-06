@@ -297,6 +297,29 @@ func runSystemctl(unit, action string, scope Scope) error {
 	return nil
 }
 
+// GatherQuadletLogs runs journalctl for the quadlet's systemd service.
+func GatherQuadletLogs(name string, lines int, follow bool, scope Scope) (string, error) {
+	systemdUnit := name + ".service"
+	args := []string{"-u", systemdUnit, "--no-pager"}
+	if scope == ScopeUser {
+		args = append([]string{"--user"}, args...)
+	}
+	if lines > 0 {
+		args = append(args, "-n", fmt.Sprintf("%d", lines))
+	} else {
+		args = append(args, "-n", "50")
+	}
+	if follow {
+		args = append(args, "-f")
+	}
+
+	out, err := exec.Command("journalctl", args...).Output()
+	if err != nil {
+		return "", fmt.Errorf("running journalctl for %s: %w", systemdUnit, err)
+	}
+	return string(out), nil
+}
+
 func scopeFlag(scope Scope) string {
 	if scope == ScopeUser {
 		return "--user"

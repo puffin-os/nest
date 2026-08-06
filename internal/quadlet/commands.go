@@ -25,6 +25,7 @@ Subcommands:
   start     - Start a quadlet's service
   stop      - Stop a quadlet's service
   restart   - Restart a quadlet's service
+  logs      - View journal logs for a quadlet's service
 
 All subcommands support --user to manage user-level quadlets.`,
 	}
@@ -36,6 +37,7 @@ All subcommands support --user to manage user-level quadlets.`,
 	cmd.AddCommand(newStartCmd())
 	cmd.AddCommand(newStopCmd())
 	cmd.AddCommand(newRestartCmd())
+	cmd.AddCommand(newLogsCmd())
 
 	return cmd
 }
@@ -272,6 +274,37 @@ func newRestartCmd() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().BoolVar(&user, "user", false, "manage user-level quadlets")
+	return cmd
+}
+
+func newLogsCmd() *cobra.Command {
+	var lines int
+	var follow bool
+	var user bool
+
+	cmd := &cobra.Command{
+		Use:   "logs <name>",
+		Short: "View journal logs for a quadlet's service",
+		Long: `View recent journal logs for a quadlet's systemd service.
+
+Use --lines to control how many lines to show (default 50).
+Use --follow to follow logs in real time (Ctrl+C to stop).`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			scope := scopeFromFlag(user)
+
+			logs, err := GatherQuadletLogs(args[0], lines, follow, scope)
+			if err != nil {
+				return err
+			}
+			fmt.Print(logs)
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVarP(&lines, "lines", "n", 50, "number of log lines to show")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "follow logs in real time")
 	cmd.Flags().BoolVar(&user, "user", false, "manage user-level quadlets")
 	return cmd
 }
