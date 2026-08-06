@@ -30,7 +30,8 @@ var (
 	sectionStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(cPrimary).
-			MarginTop(1)
+			Padding(0, 1).
+			Background(lipgloss.Color("236"))
 
 	labelStyle = lipgloss.NewStyle().
 			Foreground(cSecondary).
@@ -39,37 +40,85 @@ var (
 	valueStyle = lipgloss.NewStyle().
 			Foreground(cValue)
 
-	mutedStyle = lipgloss.NewStyle().
-			Foreground(cMuted)
+	barStyle = lipgloss.NewStyle().
+			Foreground(cAccent)
 
-	boxStyle = lipgloss.NewStyle().
+	outerBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(cBorder).
 			Padding(1, 2)
-
-	barStyle = lipgloss.NewStyle().
-			Foreground(cAccent)
 )
 
+// section represents a titled block of key-value rows.
+type section struct {
+	title string
+	rows  [][2]string
+}
+
 // FormatStyled returns the system info as a styled terminal output using lipgloss.
+// The layout uses a 2-column grid inside a single bordered frame.
 func (i *Info) FormatStyled() string {
-	var sections []string
+	left, right := i.buildColumns()
 
-	// Title
-	sections = append(sections, titleStyle.Render(" System Information "))
+	// Compute column width, capped to keep the frame reasonable.
+	const maxColWidth = 60
+	colWidth := 0
+	for _, s := range append(left, right...) {
+		w := ansi.StringWidth(renderSection(s, 0))
+		if w > colWidth {
+			colWidth = w
+		}
+	}
+	if colWidth > maxColWidth {
+		colWidth = maxColWidth
+	}
 
+	// Render each column's sections at a fixed width so they align.
+	maxSections := len(left)
+	if len(right) > maxSections {
+		maxSections = len(right)
+	}
+
+	var rowBlocks []string
+	for idx := 0; idx < maxSections; idx++ {
+		var l, r string
+		if idx < len(left) {
+			l = renderSection(left[idx], colWidth)
+		}
+		if idx < len(right) {
+			r = renderSection(right[idx], colWidth)
+		}
+		if l == "" {
+			l = strings.Repeat(" ", colWidth)
+		}
+		if r == "" {
+			r = strings.Repeat(" ", colWidth)
+		}
+		rowBlocks = append(rowBlocks, lipgloss.JoinHorizontal(lipgloss.Top, l, "  ", r))
+	}
+
+	body := strings.Join(rowBlocks, "\n")
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		titleStyle.Render(" System Information "),
+		"",
+		body,
+	)
+
+	return outerBoxStyle.Render(content)
+}
+
+// buildColumns distributes sections into two columns.
+func (i *Info) buildColumns() (left, right []section) {
 	// OS section
-	sections = append(sections, sectionStyle.Render("OS"))
-	sections = append(sections, kvBox([][2]string{
+	left = append(left, section{title: "OS", rows: [][2]string{
 		{"Hostname", i.OS.Hostname},
 		{"OS", fmt.Sprintf("%s %s (%s)", i.OS.OS, i.OS.Platform, i.OS.Version)},
 		{"Kernel", i.OS.Kernel},
 		{"Arch", i.OS.Arch},
 		{"Uptime", formatUptime(i.OS.Uptime)},
-	}))
+	}})
 
 	// CPU section
-	sections = append(sections, sectionStyle.Render("CPU"))
 	cpuRows := [][2]string{
 		{"Model", i.CPU.Model},
 		{"Cores", fmt.Sprintf("%d", i.CPU.Cores)},
@@ -83,35 +132,42 @@ func (i *Info) FormatStyled() string {
 		}
 		avg := totalUsage / float64(len(i.CPU.Usage))
 		cpuRows = append(cpuRows, [2]string{"Avg Usage", fmt.Sprintf("%.1f%%", avg)})
-		cpuRows = append(cpuRows, [2]string{"Per-Core", progressBar(avg)})
+		cpuRows = append(cpuRows, [2]string{"Per-Core", progressBar(avg, 20)})
 	}
-	sections = append(sections, kvBox(cpuRows))
+	right = append(right, section{title: "CPU", rows: cpuRows})
 
 	// Memory section
-	sections = append(sections, sectionStyle.Render("Memory"))
-	sections = append(sections, kvBox([][2]string{
+	left = append(left, section{title: "Memory", rows: [][2]string{
 		{"Total", formatBytes(i.Memory.Total)},
 		{"Used", fmt.Sprintf("%s (%.1f%%)", formatBytes(i.Memory.Used), i.Memory.Usage)},
 		{"Available", formatBytes(i.Memory.Available)},
-		{"Usage", progressBar(i.Memory.Usage)},
-	}))
+		{"Usage", progressBar(i.Memory.Usage, 20)},
+	}})
 
-	// Disks section
-	sections = append(sections, sectionStyle.Render("Disks"))
-	for _, d := range i.Disks {
-		sections = append(sections, kvBox([][2]string{
+	// Go runtime section
+	right = append(right, section{title: "Go Runtime", rows: [][2]string{
+		{"Version", i.Go.Version},
+		{"OS/Arch", fmt.Sprintf("%s/%s", i.Go.OS, i.Go.Arch)},
+	}})
+
+	// Disks: alternate between columns
+	for idx, d := range i.Disks {
+		s := section{title: "Disk: " + d.Mountpoint, rows: [][2]string{
 			{"Device", d.Device},
-			{"Mount", d.Mountpoint},
 			{"Type", d.Fstype},
 			{"Total", formatBytes(d.Total)},
 			{"Used", fmt.Sprintf("%s (%.1f%%)", formatBytes(d.Used), d.UsagePercent)},
 			{"Free", formatBytes(d.Free)},
-		}))
+		}}
+		if idx%2 == 0 {
+			left = append(left, s)
+		} else {
+			right = append(right, s)
+		}
 	}
 
-	// Network section
-	sections = append(sections, sectionStyle.Render("Network"))
-	for _, n := range i.Network {
+	// Network: alternate between columns
+	for idx, n := range i.Network {
 		ips := strings.Join(n.IPs, ", ")
 		if ips == "" {
 			ips = "-"
@@ -120,49 +176,69 @@ func (i *Info) FormatStyled() string {
 		if mac == "" {
 			mac = "-"
 		}
-		sections = append(sections, kvBox([][2]string{
-			{"Interface", n.Name},
+		s := section{title: "Net: " + n.Name, rows: [][2]string{
 			{"MTU", fmt.Sprintf("%d", n.MTU)},
 			{"MAC", mac},
 			{"IPs", ips},
 			{"RX", formatBytes(n.BytesRecv)},
 			{"TX", formatBytes(n.BytesSent)},
-		}))
+		}}
+		if idx%2 == 0 {
+			left = append(left, s)
+		} else {
+			right = append(right, s)
+		}
 	}
 
-	// Go runtime section
-	sections = append(sections, sectionStyle.Render("Go Runtime"))
-	sections = append(sections, kvBox([][2]string{
-		{"Version", i.Go.Version},
-		{"OS/Arch", fmt.Sprintf("%s/%s", i.Go.OS, i.Go.Arch)},
-	}))
-
-	// Join all sections vertically with left alignment.
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	return left, right
 }
 
-// kvBox renders a list of key-value pairs inside a bordered box.
-func kvBox(rows [][2]string) string {
+// renderSection renders a section title and its key-value rows at a target width.
+func renderSection(s section, width int) string {
 	var lines []string
+
+	// Section header bar
+	lines = append(lines, sectionStyle.Render(s.title))
+
+	// Key-value rows
 	maxLabel := 0
-	for _, r := range rows {
+	for _, r := range s.rows {
 		if len(r[0]) > maxLabel {
 			maxLabel = len(r[0])
 		}
 	}
-	for _, r := range rows {
-		label := labelStyle.Render(padRight(r[0], maxLabel))
-		value := valueStyle.Render(r[1])
-		lines = append(lines, fmt.Sprintf("%s  %s", label, value))
+	// Available width for the value column.
+	valueWidth := 0
+	if width > 0 {
+		valueWidth = width - maxLabel - 4 // 2 indent + 2 separator
+		if valueWidth < 10 {
+			valueWidth = 10
+		}
 	}
+	for _, r := range s.rows {
+		label := labelStyle.Render(padRight(r[0], maxLabel))
+		val := r[1]
+		if valueWidth > 0 && ansi.StringWidth(val) > valueWidth {
+			val = ansi.Truncate(val, valueWidth-1, "…")
+		}
+		value := valueStyle.Render(val)
+		lines = append(lines, fmt.Sprintf("  %s  %s", label, value))
+	}
+
 	body := strings.Join(lines, "\n")
-	return boxStyle.Render(body)
+
+	if width > 0 {
+		return lipgloss.NewStyle().Width(width).Render(body)
+	}
+	return body
 }
 
-// progressBar renders a text-based progress bar.
-func progressBar(pct float64) string {
-	const width = 30
-	filled := int((pct / 100.0) * width)
+// progressBar renders a text-based progress bar at the given width.
+func progressBar(pct float64, width int) string {
+	if width <= 0 {
+		width = 30
+	}
+	filled := int((pct / 100.0) * float64(width))
 	if filled > width {
 		filled = width
 	}
