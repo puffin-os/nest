@@ -66,6 +66,7 @@ func binaryName(f Flavor) string {
 
 func newSystemInfoCmd(opts *Options) *cobra.Command {
 	var jsonOut bool
+	var plain bool
 
 	cmd := &cobra.Command{
 		Use:   "system-info",
@@ -73,7 +74,8 @@ func newSystemInfoCmd(opts *Options) *cobra.Command {
 		Long: `Print information about the system this CLI is running on.
 
 Includes CPU, memory, disk, network, OS, and runtime details.
-Use --json for machine-readable output.`,
+Use --json for machine-readable output.
+Use --plain for unstyled text output.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			info, err := sysinfo.Gather()
 			if err != nil {
@@ -89,12 +91,18 @@ Use --json for machine-readable output.`,
 				return nil
 			}
 
-			fmt.Fprint(opts.Output, info.FormatText())
+			if plain {
+				fmt.Fprint(opts.Output, info.FormatText())
+				return nil
+			}
+
+			fmt.Fprint(opts.Output, info.FormatStyled())
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "output in JSON format")
+	cmd.Flags().BoolVar(&plain, "plain", false, "output in plain text (no styling)")
 
 	return cmd
 }
