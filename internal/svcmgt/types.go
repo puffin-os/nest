@@ -6,6 +6,7 @@ package svcmgt
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -281,6 +282,16 @@ func GatherLogs(unit string, lines int, follow bool, scope Scope) (string, error
 	}
 	if follow {
 		args = append(args, "-f")
+	}
+
+	// In follow mode, pipe journalctl's stdout directly to our stdout
+	// so the stream is live. Otherwise capture output as a string.
+	if follow {
+		cmd := exec.Command("journalctl", args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		return "", cmd.Run()
 	}
 
 	out, err := exec.Command("journalctl", args...).Output()
