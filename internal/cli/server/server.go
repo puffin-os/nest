@@ -7,6 +7,7 @@ import (
 	"github.com/puffin/nest/internal/cli"
 	"github.com/puffin/nest/internal/diskmgmt"
 	"github.com/puffin/nest/internal/netmgmt"
+	"github.com/puffin/nest/internal/svcmgt"
 )
 
 func init() {
@@ -16,4 +17,5 @@ func init() {
 func register(root *cobra.Command, opts *cli.Options) {
 	root.AddCommand(netmgmt.NewNetworkCmd())
 	root.AddCommand(diskmgmt.NewDiskCmd())
+	root.AddCommand(svcmgt.NewServiceCmd())
 }

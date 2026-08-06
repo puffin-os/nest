@@ -38,6 +38,7 @@ internal/
     workstation/      # workstation-only subcommands (placeholder)
   netmgmt/            # network management: list, status, add, remove
   diskmgmt/           # disk management: list, status, mounts, mount, unmount, format, expand
+  svcmgt/             # service management: list, status, start/stop/restart, enable/disable, logs
   sysinfo/            # system info gathering and formatted output
 .github/workflows/    # CI (build/vet/test) and release-please
 ```
@@ -66,6 +67,19 @@ internal/
   - `disk unmount <device|mountpoint>` — unmount (`--lazy` for lazy unmount)
   - `disk format <device>` — format with filesystem (`-t ext4|xfs|btrfs|fat32|swap`, `-l` for label)
   - `disk expand <device>` — grow partition and resize filesystem to fill available space
+
+- `service` (alias `svc`) — manage systemd services
+  - `service list` — table of all services (`--json`, `--state` to filter)
+  - `service status <service>` — detailed view with PID, memory, CPU, environment (`--json`)
+  - `service start <service>` — start a service
+  - `service stop <service>` — stop a service
+  - `service restart <service>` — restart a service
+  - `service reload <service>` — reload service configuration
+  - `service enable <service>` — enable at boot
+  - `service disable <service>` — disable at boot
+  - `service mask <service>` — mask so it cannot be started
+  - `service unmask <service>` — unmask a previously masked service
+  - `service logs <service>` — view journal logs (`-n` for lines, `-f` to follow)
 
 ## Build and development
 
