@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: |
+          go build -o bin/nest-server ./cmd/nest-server
+          go build -o bin/nest-desktop ./cmd/nest-desktop
+          go build -o bin/nest-workstation ./cmd/nest-workstation
+
+      - name: Test
+        run: go test ./...
