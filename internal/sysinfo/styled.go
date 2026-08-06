@@ -14,7 +14,6 @@ var (
 	cPrimary   = lipgloss.Color("99")
 	cSecondary = lipgloss.Color("36")
 	cAccent    = lipgloss.Color("213")
-	cMuted     = lipgloss.Color("241")
 	cValue     = lipgloss.Color("252")
 	cBorder    = lipgloss.Color("63")
 )
@@ -56,12 +55,94 @@ type section struct {
 }
 
 // FormatStyled returns the system info as a styled terminal output using lipgloss.
-// The layout uses a 2-column grid inside a single bordered frame.
+// The layout has 3 grouped sections (General, Disks, Network) inside a single frame.
+// Each group uses a 2-column layout for its subsections.
 func (i *Info) FormatStyled() string {
-	left, right := i.buildColumns()
-
-	// Compute column width, capped to keep the frame reasonable.
 	const maxColWidth = 60
+
+	// Build the 3 groups.
+	general := i.renderGroup("General Information", maxColWidth,
+		[]section{i.osSection(), i.cpuSection()},
+		[]section{i.memorySection(), i.goSection()},
+	)
+	disks := i.renderDisksGroup(maxColWidth)
+	network := i.renderNetworkGroup(maxColWidth)
+
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		titleStyle.Render(" System Information "),
+		"",
+		general,
+		"",
+		disks,
+		"",
+		network,
+	)
+
+	return outerBoxStyle.Render(content)
+}
+
+// renderGroup renders a group title and its 2-column subsections.
+func (i *Info) renderGroup(title string, colWidth int, left, right []section) string {
+	header := sectionStyle.Render(title)
+
+	body := renderTwoColumns(left, right, colWidth)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, body)
+}
+
+// renderDisksGroup renders the disks group with 2-column layout.
+func (i *Info) renderDisksGroup(maxColWidth int) string {
+	var left, right []section
+	for idx, d := range i.Disks {
+		s := section{title: d.Mountpoint, rows: [][2]string{
+			{"Device", d.Device},
+			{"Type", d.Fstype},
+			{"Total", formatBytes(d.Total)},
+			{"Used", fmt.Sprintf("%s (%.1f%%)", formatBytes(d.Used), d.UsagePercent)},
+			{"Free", formatBytes(d.Free)},
+		}}
+		if idx%2 == 0 {
+			left = append(left, s)
+		} else {
+			right = append(right, s)
+		}
+	}
+
+	return i.renderGroup("Disks", maxColWidth, left, right)
+}
+
+// renderNetworkGroup renders the network group with 2-column layout.
+func (i *Info) renderNetworkGroup(maxColWidth int) string {
+	var left, right []section
+	for idx, n := range i.Network {
+		ips := strings.Join(n.IPs, ", ")
+		if ips == "" {
+			ips = "-"
+		}
+		mac := n.Hardware
+		if mac == "" {
+			mac = "-"
+		}
+		s := section{title: n.Name, rows: [][2]string{
+			{"MTU", fmt.Sprintf("%d", n.MTU)},
+			{"MAC", mac},
+			{"IPs", ips},
+			{"RX", formatBytes(n.BytesRecv)},
+			{"TX", formatBytes(n.BytesSent)},
+		}}
+		if idx%2 == 0 {
+			left = append(left, s)
+		} else {
+			right = append(right, s)
+		}
+	}
+
+	return i.renderGroup("Network", maxColWidth, left, right)
+}
+
+// renderTwoColumns renders left/right section lists in a 2-column grid.
+func renderTwoColumns(left, right []section, maxColWidth int) string {
+	// Compute column width from all sections.
 	colWidth := 0
 	for _, s := range append(left, right...) {
 		w := ansi.StringWidth(renderSection(s, 0))
@@ -73,7 +154,6 @@ func (i *Info) FormatStyled() string {
 		colWidth = maxColWidth
 	}
 
-	// Render each column's sections at a fixed width so they align.
 	maxSections := len(left)
 	if len(right) > maxSections {
 		maxSections = len(right)
@@ -97,28 +177,22 @@ func (i *Info) FormatStyled() string {
 		rowBlocks = append(rowBlocks, lipgloss.JoinHorizontal(lipgloss.Top, l, "  ", r))
 	}
 
-	body := strings.Join(rowBlocks, "\n")
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		titleStyle.Render(" System Information "),
-		"",
-		body,
-	)
-
-	return outerBoxStyle.Render(content)
+	return strings.Join(rowBlocks, "\n")
 }
 
-// buildColumns distributes sections into two columns.
-func (i *Info) buildColumns() (left, right []section) {
-	// OS section
-	left = append(left, section{title: "OS", rows: [][2]string{
+// Individual section builders.
+
+func (i *Info) osSection() section {
+	return section{title: "OS", rows: [][2]string{
 		{"Hostname", i.OS.Hostname},
 		{"OS", fmt.Sprintf("%s %s (%s)", i.OS.OS, i.OS.Platform, i.OS.Version)},
 		{"Kernel", i.OS.Kernel},
 		{"Arch", i.OS.Arch},
 		{"Uptime", formatUptime(i.OS.Uptime)},
-	}})
+	}}
+}
 
-	// CPU section
+func (i *Info) cpuSection() section {
 	cpuRows := [][2]string{
 		{"Model", i.CPU.Model},
 		{"Cores", fmt.Sprintf("%d", i.CPU.Cores)},
@@ -134,63 +208,23 @@ func (i *Info) buildColumns() (left, right []section) {
 		cpuRows = append(cpuRows, [2]string{"Avg Usage", fmt.Sprintf("%.1f%%", avg)})
 		cpuRows = append(cpuRows, [2]string{"Per-Core", progressBar(avg, 20)})
 	}
-	right = append(right, section{title: "CPU", rows: cpuRows})
+	return section{title: "CPU", rows: cpuRows}
+}
 
-	// Memory section
-	left = append(left, section{title: "Memory", rows: [][2]string{
+func (i *Info) memorySection() section {
+	return section{title: "Memory", rows: [][2]string{
 		{"Total", formatBytes(i.Memory.Total)},
 		{"Used", fmt.Sprintf("%s (%.1f%%)", formatBytes(i.Memory.Used), i.Memory.Usage)},
 		{"Available", formatBytes(i.Memory.Available)},
 		{"Usage", progressBar(i.Memory.Usage, 20)},
-	}})
+	}}
+}
 
-	// Go runtime section
-	right = append(right, section{title: "Go Runtime", rows: [][2]string{
+func (i *Info) goSection() section {
+	return section{title: "Go Runtime", rows: [][2]string{
 		{"Version", i.Go.Version},
 		{"OS/Arch", fmt.Sprintf("%s/%s", i.Go.OS, i.Go.Arch)},
-	}})
-
-	// Disks: alternate between columns
-	for idx, d := range i.Disks {
-		s := section{title: "Disk: " + d.Mountpoint, rows: [][2]string{
-			{"Device", d.Device},
-			{"Type", d.Fstype},
-			{"Total", formatBytes(d.Total)},
-			{"Used", fmt.Sprintf("%s (%.1f%%)", formatBytes(d.Used), d.UsagePercent)},
-			{"Free", formatBytes(d.Free)},
-		}}
-		if idx%2 == 0 {
-			left = append(left, s)
-		} else {
-			right = append(right, s)
-		}
-	}
-
-	// Network: alternate between columns
-	for idx, n := range i.Network {
-		ips := strings.Join(n.IPs, ", ")
-		if ips == "" {
-			ips = "-"
-		}
-		mac := n.Hardware
-		if mac == "" {
-			mac = "-"
-		}
-		s := section{title: "Net: " + n.Name, rows: [][2]string{
-			{"MTU", fmt.Sprintf("%d", n.MTU)},
-			{"MAC", mac},
-			{"IPs", ips},
-			{"RX", formatBytes(n.BytesRecv)},
-			{"TX", formatBytes(n.BytesSent)},
-		}}
-		if idx%2 == 0 {
-			left = append(left, s)
-		} else {
-			right = append(right, s)
-		}
-	}
-
-	return left, right
+	}}
 }
 
 // renderSection renders a section title and its key-value rows at a target width.
