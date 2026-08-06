@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/puffin/nest/internal/cli"
+	_ "github.com/puffin/nest/internal/cli/server"
 )
 
 func main() {

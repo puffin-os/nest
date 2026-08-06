@@ -29,8 +29,18 @@ cmd/
   nest-workstation/  # entrypoint for workstation binary
 internal/
   cli/               # shared cobra command tree
+    server/          # server-specific subcommands (registered via init)
+    desktop/         # desktop-specific subcommands (registered via init)
+    workstation/     # workstation-specific subcommands (registered via init)
   sysinfo/           # system info gathering (gopsutil)
 ```
+
+## Adding Flavor-Specific Subcommands
+
+Each binary blank-imports its flavor package, which registers subcommands
+via `cli.RegisterFlavorCmds` in an `init()`. To add a server-only command,
+add it in `internal/cli/server/server.go`. Shared commands go in
+`internal/cli/cli.go`.
 
 ## Libraries
 

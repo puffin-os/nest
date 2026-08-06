@@ -26,6 +26,11 @@ type Options struct {
 	Output io.Writer
 }
 
+// RegisterFlavorCmds is a hook that each binary can override to add
+// flavor-specific subcommands to the root command. By default no
+// flavor-specific commands are registered.
+var RegisterFlavorCmds func(root *cobra.Command, opts *Options)
+
 // NewRootCmd creates the root cobra command for a nest binary.
 // The flavor parameter controls which subcommands are available.
 func NewRootCmd(flavor Flavor) *cobra.Command {
@@ -46,6 +51,11 @@ func NewRootCmd(flavor Flavor) *cobra.Command {
 
 	// Shared subcommands available to all flavors.
 	root.AddCommand(newSystemInfoCmd(opts))
+
+	// Flavor-specific subcommands (if any are registered).
+	if RegisterFlavorCmds != nil {
+		RegisterFlavorCmds(root, opts)
+	}
 
 	return root
 }
