@@ -386,10 +386,10 @@ type QuadletInspect struct {
 // GatherQuadletInspect collects container runtime stats for a quadlet.
 // It uses podman inspect for metadata and podman stats for resource usage.
 func GatherQuadletInspect(name string, scope Scope) (*QuadletInspect, error) {
-	podmanArgs := []string{}
-	if scope == ScopeUser {
-		podmanArgs = append(podmanArgs, "--user")
-	}
+	// Podman is rootless by default; the --user scope only affects
+	// systemctl/journalctl calls, not podman commands. Podman
+	// automatically uses the correct storage based on the running user.
+	_ = scope
 
 	// Try the container name as-is first, then with systemd- prefix
 	// (Quadlet names containers systemd-<quadletname>)
@@ -398,9 +398,9 @@ func GatherQuadletInspect(name string, scope Scope) (*QuadletInspect, error) {
 	var inspectOut []byte
 	var foundName string
 	for _, cn := range containerNames {
-		args := append(podmanArgs, "inspect", "--format",
+		args := []string{"inspect", "--format",
 			`{{.Id}}|{{.State.Status}}|{{.State.Pid}}|{{.State.StartedAt}}|{{.Config.Image}}|{{.Name}}`,
-			cn)
+			cn}
 		out, err := exec.Command("podman", args...).Output()
 		if err == nil && len(out) > 0 {
 			inspectOut = out
@@ -427,12 +427,11 @@ func GatherQuadletInspect(name string, scope Scope) (*QuadletInspect, error) {
 	}
 	fmt.Sscanf(parts[2], "%d", &inspect.PID)
 	inspect.StartedAt = parts[3]
-	_ = foundName
 
 	// Get resource usage via podman stats
-	statsArgs := append(podmanArgs, "stats", "--no-stream", "--format",
+	statsArgs := []string{"stats", "--no-stream", "--format",
 		"{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}",
-		foundName)
+		foundName}
 	statsOut, err := exec.Command("podman", statsArgs...).Output()
 	if err == nil {
 		statsStr := strings.TrimSpace(string(statsOut))
@@ -447,8 +446,8 @@ func GatherQuadletInspect(name string, scope Scope) (*QuadletInspect, error) {
 	}
 
 	// Get disk usage via podman system df
-	dfArgs := append(podmanArgs, "system", "df", "--format",
-		"{{.Type}}|{{.Total}}|{{.Active}}|{{.Size}}|{{.Reclaimable}}")
+	dfArgs := []string{"system", "df", "--format",
+		"{{.Type}}|{{.Total}}|{{.Active}}|{{.Size}}|{{.Reclaimable}}"}
 	dfOut, err := exec.Command("podman", dfArgs...).Output()
 	if err == nil {
 		for _, line := range strings.Split(string(dfOut), "\n") {
