@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.1.0](https://github.com/puffin-os/nest/compare/v1.0.0...v1.1.0) (2026-08-07)
+
+
+### Features
+
+* add --user flag for user-level systemd services ([56dbe62](https://github.com/puffin-os/nest/commit/56dbe620d2a766c35ecde337803fb96da3d16ace))
+* add apps (quadlet) subcommand to nest-server ([911fe19](https://github.com/puffin-os/nest/commit/911fe19ecb39a88614e8fd9f5603a5ed9aa6b65b))
+* add apps inspect command for quadlet runtime stats ([01132d3](https://github.com/puffin-os/nest/commit/01132d387fc4c35e433d52d8782853adca5e4074))
+* add disk management subcommands to nest-server ([41b49ab](https://github.com/puffin-os/nest/commit/41b49ab46d111549de181eb2b7ad42d7af9c38cb))
+* add logs subcommand to apps (quadlet) ([84c8716](https://github.com/puffin-os/nest/commit/84c87160838cf44dc7fafecb4fd1e9c14961e30e))
+* add network and disk subcommands to nest-workstation ([e681ed2](https://github.com/puffin-os/nest/commit/e681ed2bd9878bc47a3bc9d7073c4e4865deea66))
+* add network and restart selection to quadlet create wizard ([6ef2179](https://github.com/puffin-os/nest/commit/6ef2179e14b4f901dadb68bd696b0d73f36e3913))
+* add service subcommand to nest-workstation ([fdd7417](https://github.com/puffin-os/nest/commit/fdd741781c53d4f250b6df94ffcef8a99be31a26))
+* add systemd service management subcommands to nest-server ([02a78c5](https://github.com/puffin-os/nest/commit/02a78c53e81d4a0be11f3e707568b96bf647270e))
+
+
+### Bug Fixes
+
+* don't pass --user flag to podman in inspect ([b4682cf](https://github.com/puffin-os/nest/commit/b4682cf5624425d54bb340cb9595e89688076b9c))
+* journalctl -f follow mode now works for apps and service logs ([363f41f](https://github.com/puffin-os/nest/commit/363f41ff4c26d793bbc2323e68d12b54c23d4cb6))
+* use correct .service suffix for quadlet systemd units ([feef85c](https://github.com/puffin-os/nest/commit/feef85c7394dec51524b15be4202bfedfa925b56))
+
 ## 1.0.0 (2026-08-06)
 
 
