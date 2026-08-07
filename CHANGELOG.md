@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/puffin-os/nest/compare/v1.1.0...v1.1.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* use nest as command name in help output ([8c24354](https://github.com/puffin-os/nest/commit/8c24354c8ef2c34cae2e7989d271c37b1cc479bb))
+
 ## [1.1.0](https://github.com/puffin-os/nest/compare/v1.0.0...v1.1.0) (2026-08-07)
 
 
