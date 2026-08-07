@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/puffin-os/nest/compare/v1.1.1...v1.2.0) (2026-08-07)
+
+
+### Features
+
+* add update subcommand to all CLIs ([f21c2cf](https://github.com/puffin-os/nest/commit/f21c2cfebc57687a594f97a28e3e3cc2720b97ca))
+
 ## [1.1.1](https://github.com/puffin-os/nest/compare/v1.1.0...v1.1.1) (2026-08-07)
 
 
