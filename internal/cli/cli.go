@@ -15,7 +15,7 @@ import (
 type Flavor string
 
 const (
-	FlavorServer     Flavor = "server"
+	FlavorServer      Flavor = "server"
 	FlavorDesktop     Flavor = "desktop"
 	FlavorWorkstation Flavor = "workstation"
 )
@@ -51,6 +51,7 @@ func NewRootCmd(flavor Flavor) *cobra.Command {
 
 	// Shared subcommands available to all flavors.
 	root.AddCommand(newSystemInfoCmd(opts))
+	root.AddCommand(newUpdateCmd(opts))
 
 	// Flavor-specific subcommands (if any are registered).
 	if RegisterFlavorCmds != nil {
@@ -100,5 +101,17 @@ Use --plain for unstyled text output.`,
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "output in JSON format")
 	cmd.Flags().BoolVar(&plain, "plain", false, "output in plain text (no styling)")
 
+	return cmd
+}
+
+func newUpdateCmd(opts *Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Update the system",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Fprintln(opts.Output, "Update finished")
+			return nil
+		},
+	}
 	return cmd
 }
