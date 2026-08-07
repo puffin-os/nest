@@ -40,7 +40,7 @@ func NewRootCmd(flavor Flavor) *cobra.Command {
 	}
 
 	root := &cobra.Command{
-		Use:   binaryName(flavor),
+		Use:   "nest",
 		Short: fmt.Sprintf("Puffin %s management CLI", flavor),
 		Long: fmt.Sprintf(
 			"nest is the management CLI for Puffin OS.\n\nThis binary is built for the %s derivative.",
@@ -58,10 +58,6 @@ func NewRootCmd(flavor Flavor) *cobra.Command {
 	}
 
 	return root
-}
-
-func binaryName(f Flavor) string {
-	return "nest-" + string(f)
 }
 
 func newSystemInfoCmd(opts *Options) *cobra.Command {
